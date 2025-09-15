@@ -1,0 +1,239 @@
+tep-by-step
+
+Buka terminal di Kali, lalu ketik:
+
+nano tetris.py
+
+
+Copy semua kode di bawah ini, paste ke editor nano.
+
+Simpan dengan Ctrl+O → Enter, lalu keluar dengan Ctrl+X.
+
+Jalankan game:
+
+python3 tetris.py
+
+📄 Kode tetris.py
+#!/usr/bin/env python3
+# Minimal Tetris (terminal) - Python + curses
+# Works on Linux terminals (incl. Kali). No external deps.
+# Controls:
+#  ←/→ : move,  ↑ : rotate,  ↓ : soft drop
+#  space: hard drop,  p: pause,  q: quit
+
+import curses, time, random
+
+W, H = 10, 20  # board size
+TICK_MIN = 0.05
+
+SHAPES = {
+    "I":[[(0,1),(1,1),(2,1),(3,1)],
+         [(2,0),(2,1),(2,2),(2,3)]],
+    "J":[[(0,0),(0,1),(1,1),(2,1)],
+         [(1,0),(2,0),(1,1),(1,2)],
+         [(0,1),(1,1),(2,1),(2,2)],
+         [(1,0),(1,1),(0,2),(1,2)]],
+    "L":[[(2,0),(0,1),(1,1),(2,1)],
+         [(1,0),(1,1),(1,2),(2,2)],
+         [(0,1),(1,1),(2,1),(0,2)],
+         [(0,0),(1,0),(1,1),(1,2)]],
+    "O":[[(1,0),(2,0),(1,1),(2,1)]],
+    "S":[[(1,0),(2,0),(0,1),(1,1)],
+         [(1,0),(1,1),(2,1),(2,2)]],
+    "T":[[(1,0),(0,1),(1,1),(2,1)],
+         [(1,0),(1,1),(2,1),(1,2)],
+         [(0,1),(1,1),(2,1),(1,2)],
+         [(1,0),(0,1),(1,1),(1,2)]],
+    "Z":[[(0,0),(1,0),(1,1),(2,1)],
+         [(2,0),(1,1),(2,1),(1,2)]],
+}
+PIECES = list(SHAPES.keys())
+
+def new_piece():
+    t = random.choice(PIECES)
+    rot = 0
+    shape = SHAPES[t][rot]
+    x = W//2 - 2
+    y = 0
+    return {"t":t,"rot":rot,"x":x,"y":y}
+
+def rotate(piece, board):
+    t = piece["t"]
+    rot = (piece["rot"] + 1) % len(SHAPES[t])
+    trial = dict(piece, rot=rot)
+    if not collision(trial, board):
+        piece["rot"] = rot
+    else:
+        # wall kick
+        for dx in (-1,1,-2,2):
+            trial = dict(piece, rot=rot, x=piece["x"]+dx)
+            if not collision(trial, board):
+                piece["rot"]=rot; piece["x"]+=dx; break
+
+def cells(piece):
+    shape = SHAPES[piece["t"]][piece["rot"]]
+    for (dx,dy) in shape:
+        yield (piece["x"]+dx, piece["y"]+dy)
+
+def collision(piece, board):
+    for (x,y) in cells(piece):
+        if x<0 or x>=W or y<0 or y>=H: return True
+        if board[y][x]: return True
+    return False
+
+def lock(piece, board):
+    for (x,y) in cells(piece):
+        if 0<=y<H and 0<=x<W:
+            board[y][x]=piece["t"]
+    return board
+
+def clear_lines(board):
+    new = [row for row in board if not all(row)]
+    removed = H - len(new)
+    for _ in range(removed): new.insert(0, [None]*W)
+    return new, removed
+
+def draw(win, board, piece, score, level, lines, paused, next_piece):
+    win.clear()
+    ox, oy = 2, 1
+
+    # title
+    win.addstr(0, ox, "TETRIS (ASCII)")
+
+    # border
+    for y in range(H):
+        win.addstr(oy+y, ox-2, "│")
+        win.addstr(oy+y, ox+W*2, "│")
+    win.addstr(oy+H, ox-2, "└"+"─"*(W*2)+"┘")
+
+    # settled blocks
+    for y in range(H):
+        for x in range(W):
+            if board[y][x]:
+                win.addstr(oy+y, ox+x*2, "██")
+
+    # current piece
+    if piece and not paused:
+        for (x,y) in cells(piece):
+            if 0<=y<H and 0<=x<W:
+                win.addstr(oy+y, ox+x*2, "██")
+
+    # sidebar
+    sx = ox + W*2 + 4
+    win.addstr(2, sx, f"Score : {score}")
+    win.addstr(3, sx, f"Level : {level}")
+    win.addstr(4, sx, f"Lines : {lines}")
+
+    win.addstr(6, sx, "Keys")
+    win.addstr(7, sx, "←/→ move")
+    win.addstr(8, sx, "↑ rotate")
+    win.addstr(9, sx, "↓ soft drop")
+    win.addstr(10, sx, "space hard drop")
+    win.addstr(11, sx, "p pause, q quit")
+
+    # next piece preview
+    win.addstr(13, sx, "Next:")
+    if next_piece:
+        preview = {"t":next_piece["t"], "rot":0, "x":0, "y":0}
+        shape = SHAPES[preview["t"]][0]
+        minx = min(x for x,y in shape)
+        miny = min(y for x,y in shape)
+        norm = [(x-minx, y-miny) for x,y in shape]
+        for (dx,dy) in norm:
+            win.addstr(15+dy, sx+dx*2, "██")
+
+    if paused:
+        msg = "-- PAUSED --"
+        win.addstr(oy+H//2, ox + W - len(msg)//2, msg)
+
+    win.refresh()
+
+def hard_drop(piece, board):
+    drop = 0
+    while True:
+        trial = dict(piece, y=piece["y"]+1)
+        if collision(trial, board): break
+        piece = trial; drop += 1
+    return piece, drop
+
+def main(stdscr):
+    curses.curs_set(0)
+    stdscr.nodelay(True)
+    stdscr.timeout(0)
+
+    board = [[None]*W for _ in range(H)]
+    piece = new_piece()
+    next_piece = new_piece()
+    score, lines, level = 0, 0, 1
+    fall_time = 0.6
+    last_tick = time.time()
+    paused, game_over = False, False
+
+    while True:
+        now = time.time()
+        dt = now - last_tick
+
+        try: key = stdscr.getch()
+        except: key = -1
+
+        if key != -1:
+            if key in (ord('q'), ord('Q')): break
+            if key in (ord('p'), ord('P')): paused = not paused
+            if not paused and not game_over:
+                if key == curses.KEY_LEFT:
+                    trial = dict(piece, x=piece["x"]-1)
+                    if not collision(trial, board): piece = trial
+                elif key == curses.KEY_RIGHT:
+                    trial = dict(piece, x=piece["x"]+1)
+                    if not collision(trial, board): piece = trial
+                elif key == curses.KEY_UP: rotate(piece, board)
+                elif key == curses.KEY_DOWN:
+                    trial = dict(piece, y=piece["y"]+1)
+                    if not collision(trial, board):
+                        piece = trial; score += 1
+                elif key == ord(' '):
+                    piece, d = hard_drop(piece, board)
+                    score += 2*d
+                    board = lock(piece, board)
+                    board, cleared = clear_lines(board)
+                    if cleared:
+                        lines += cleared
+                        add = {1:100,2:300,3:500,4:800}.get(cleared, 0)
+                        score += add * level
+                        if lines // 10 + 1 > level:
+                            level = lines // 10 + 1
+                            fall_time = max(TICK_MIN, 0.6 * (0.85 ** (level-1)))
+                    piece, next_piece = next_piece, new_piece()
+                    if collision(piece, board): game_over = True
+
+        if not paused and not game_over and dt >= fall_time:
+            last_tick = now
+            trial = dict(piece, y=piece["y"]+1)
+            if collision(trial, board):
+                board = lock(piece, board)
+                board, cleared = clear_lines(board)
+                if cleared:
+                    lines += cleared
+                    add = {1:100,2:300,3:500,4:800}.get(cleared, 0)
+                    score += add * level
+                    if lines // 10 + 1 > level:
+                        level = lines // 10 + 1
+                        fall_time = max(TICK_MIN, 0.6 * (0.85 ** (level-1)))
+                piece, next_piece = next_piece, new_piece()
+                if collision(piece, board): game_over = True
+            else: piece = trial
+
+        draw(stdscr, board, piece if not game_over else None, score, level, lines, paused, next_piece)
+
+        if game_over:
+            msg = " GAME OVER - press q to quit "
+            y = 2 + H//2
+            x = 2 + W - len(msg)//2
+            try: stdscr.addstr(y, x, msg)
+            except curses.error: pass
+            stdscr.refresh()
+
+        time.sleep(0.01)
+
+if __name__ == "__main__":
+    curses.wrapper(main)

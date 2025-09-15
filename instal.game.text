@@ -1,0 +1,24 @@
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install --upgrade pip wheel
+
+pip install pygame
+
+sudo apt install -y python3-pygame
+
+python tetris.py 
+
+Jika gagal 
+
+sudo apt install -y python3-dev libsdl2-dev libsdl2-image-dev libsdl2-mixer-dev libsdl2-ttf-dev libfreetype6-dev libportmidi-dev
+pip install --no-cache-dir --force-reinstall pygame
+
+Kalo import eror
+
+sudo apt install -y libsdl2-2.0-0 libsdl2-image-2.0-0 libsdl2-mixer-2.0-0 libsdl2-ttf-2.0-0 libfreetype6
+
+Menjalankan di lain waktu 
+
+cd ~/pytetris
+source .venv/bin/activate
+python tetris.py 
